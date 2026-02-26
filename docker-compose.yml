@@ -1,0 +1,182 @@
+# ── STARTUP DEPENDENCY CHAIN ────────────────────────────────────────────────
+# mysql (healthcheck) ──► backend, airflow-init
+# redis (healthcheck) ──► backend
+# airflow-init (service_completed_successfully) ──► airflow-webserver, airflow-scheduler
+#
+# ── VOLUMES ─────────────────────────────────────────────────────────────────
+# mysql-data        → MySQL data directory (/var/lib/mysql inside mysql container)
+# mlflow-artifacts  → MLflow artifact store (/mlflow/artifacts in mlflow container)
+#                     configured in mlflow/Dockerfile; path set via --backend-store-uri
+# airflow-logs      → Airflow task logs (/opt/airflow/logs in all pipeline containers)
+#
+# ── NETWORK ─────────────────────────────────────────────────────────────────
+# All services share crypto-net (bridge). Service names resolve as DNS hostnames.
+# Examples: backend reaches MySQL as "mysql:3306", Redis as "redis:6379",
+#           ml-service as "ml-service:8000", MLflow as "mlflow:5000"
+#
+# ── SECRETS / CONFIG ────────────────────────────────────────────────────────
+# All env vars injected from .env via env_file or inline environment blocks.
+# See .env for the full list and which services consume each variable.
+#
+# ── AIRFLOW NOTE ────────────────────────────────────────────────────────────
+# airflow-init, airflow-webserver, airflow-scheduler all build from ./pipeline/Dockerfile.
+# One image, three roles. airflow-init runs once and exits (restart: "no").
+# DAG files in ./pipeline/dags/ are bind-mounted into webserver and scheduler.
+
+version: '3.9'
+
+networks:
+  crypto-net:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  mlflow-artifacts:
+  airflow-logs:
+
+services:
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+
+  mysql:
+    image: mysql:8.0
+    env_file: .env
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - crypto-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - crypto-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── MLflow tracking server ───────────────────────────────────────────────────
+
+  mlflow:
+    build: ./mlflow
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow-artifacts:/mlflow/artifacts
+    networks:
+      - crypto-net
+
+  # ── Application services ─────────────────────────────────────────────────────
+
+  backend:
+    build: ./backend
+    ports:
+      - "4000:4000"
+    env_file: .env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - crypto-net
+
+  ml-service:
+    build: ./ml-service
+    ports:
+      - "8000:8000"
+    env_file: .env
+    networks:
+      - crypto-net
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    env_file: .env
+    environment:
+      BACKEND_URL: http://backend:4000
+    depends_on:
+      - backend
+    networks:
+      - crypto-net
+
+  # ── Airflow (pipeline) ────────────────────────────────────────────────────────
+
+  airflow-init:
+    build: ./pipeline
+    restart: "no"
+    command: >
+      bash -c "
+        airflow db migrate &&
+        airflow users create \
+          --username admin \
+          --password admin \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com
+      "
+    env_file: .env
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/airflow_db"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__FERNET_KEY: "${AIRFLOW_FERNET_KEY}"
+      AIRFLOW__WEBSERVER__SECRET_KEY: "${AIRFLOW_SECRET_KEY}"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - crypto-net
+
+  airflow-webserver:
+    build: ./pipeline
+    command: airflow webserver
+    ports:
+      - "8080:8080"
+    env_file: .env
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/airflow_db"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__FERNET_KEY: "${AIRFLOW_FERNET_KEY}"
+      AIRFLOW__WEBSERVER__SECRET_KEY: "${AIRFLOW_SECRET_KEY}"
+    volumes:
+      - ./pipeline/dags:/opt/airflow/dags
+      - airflow-logs:/opt/airflow/logs
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    networks:
+      - crypto-net
+
+  airflow-scheduler:
+    build: ./pipeline
+    command: airflow scheduler
+    env_file: .env
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/airflow_db"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__FERNET_KEY: "${AIRFLOW_FERNET_KEY}"
+      AIRFLOW__WEBSERVER__SECRET_KEY: "${AIRFLOW_SECRET_KEY}"
+    volumes:
+      - ./pipeline/dags:/opt/airflow/dags
+      - airflow-logs:/opt/airflow/logs
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    networks:
+      - crypto-net
