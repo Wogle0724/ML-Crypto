@@ -19,12 +19,40 @@
  *   }, [data]);
  *   return <div ref={chartRef} />;
  */
-// Placeholder — wire up lightweight-charts (TradingView LWC) here.
-export default function Chart({ data }) {
+import { createChart } from 'lightweight-charts';
+import { createContext, useEffect, useRef } from 'react';
+
+// Shared context — PredictionOverlay consumes this to attach its own series
+// to the same chart instance without needing a prop-drilling chain.
+export const ChartContext = createContext(null);
+
+export default function Chart({ data, children }) {
+  const containerRef = useRef(null);
+  const chartRef     = useRef(null);
+  const seriesRef    = useRef(null);
+
+  // Create the chart once on mount; destroy on unmount.
+  useEffect(() => {
+    if (!containerRef.current) return;
+    chartRef.current  = createChart(containerRef.current, { width: 800, height: 400 });
+    seriesRef.current = chartRef.current.addLineSeries({ color: '#2962ff' });
+    return () => chartRef.current.remove();
+  }, []);
+
+  // Re-draw whenever price data arrives or changes.
+  // lightweight-charts requires time in Unix seconds, not milliseconds.
+  useEffect(() => {
+    if (!seriesRef.current || !data?.prices?.length) return;
+    seriesRef.current.setData(
+      data.prices.map((p) => ({ time: Math.floor(p.time / 1000), value: p.value }))
+    );
+    chartRef.current.timeScale().fitContent();
+  }, [data]);
+
   return (
-    <div style={{ border: '1px dashed #ccc', padding: '1rem', marginBottom: '1rem' }}>
-      <p>Chart placeholder – lightweight-charts goes here</p>
-      {data && <pre style={{ fontSize: '0.75rem' }}>{JSON.stringify(data, null, 2)}</pre>}
-    </div>
+    <ChartContext.Provider value={chartRef}>
+      <div ref={containerRef} />
+      {children}
+    </ChartContext.Provider>
   );
 }

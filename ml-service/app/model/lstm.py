@@ -36,7 +36,7 @@ class LSTMModel(nn.Module):
 
     def __init__(
         self,
-        input_size: int = 10,
+        input_size: int = 12,
         hidden_size: int = 64,
         num_layers: int = 2,
         output_size: int = 1,

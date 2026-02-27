@@ -26,6 +26,18 @@ DEPENDENCY:
   so both services can import this module (pipeline imports it directly for training).
 """
 import pandas as pd
+import pandas_ta as ta  # noqa: F401 — registers df.ta accessor
+
+# Exact 12 columns fed into LSTMModel (input_size=12).
+# CRITICAL: this list must stay in sync with the model's input_size.
+# Training (pipeline/dags/train_model.py) and inference (routes/predict.py)
+# both call compute_features(), so column order here defines the tensor shape.
+FEATURE_COLS = [
+    "open", "high", "low", "close", "volume",   # 5 — raw OHLCV
+    "RSI_14",                                     # 1 — momentum
+    "MACD_12_26_9", "MACDh_12_26_9", "MACDs_12_26_9",  # 3 — trend
+    "BBL_5_2.0", "BBM_5_2.0", "BBU_5_2.0",      # 3 — volatility bands
+]  # total = 12
 
 
 def compute_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -33,11 +45,11 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     Compute technical indicator features from a price DataFrame.
 
     Expected input columns: open, high, low, close, volume
-    Returns the DataFrame with additional indicator columns appended.
+    Returns a DataFrame with exactly FEATURE_COLS columns, NaN-leading rows dropped.
     """
-    # Example (uncomment when implementing):
-    # import pandas_ta as ta
-    # df.ta.rsi(close='close', length=14, append=True)
-    # df.ta.macd(close='close', append=True)
-    # df.ta.bbands(close='close', append=True)
-    return df
+    df = df.copy()
+    df.ta.rsi(close="close", length=14, append=True)
+    df.ta.macd(close="close", append=True)      # adds MACD_12_26_9, MACDh_12_26_9, MACDs_12_26_9
+    df.ta.bbands(close="close", append=True)    # adds BBL_5_2.0, BBM_5_2.0, BBU_5_2.0, BBB_5_2.0, BBP_5_2.0
+    df = df.dropna()
+    return df[FEATURE_COLS]

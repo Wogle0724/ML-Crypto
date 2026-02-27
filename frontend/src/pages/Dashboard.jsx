@@ -47,8 +47,9 @@ export default function Dashboard() {
     <div style={{ fontFamily: 'sans-serif', padding: '2rem' }}>
       <h1>Crypto Predictor Dashboard</h1>
       {error && <p style={{ color: 'red' }}>Error: {error}</p>}
-      <Chart data={prices} />
-      <PredictionOverlay data={predictions} />
+      <Chart data={prices}>
+        <PredictionOverlay data={predictions} />
+      </Chart>
     </div>
   );
 }

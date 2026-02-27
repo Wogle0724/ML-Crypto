@@ -1,7 +1,7 @@
 requests==2.32.3
-pandas==2.2.2
-pandas-ta==0.3.14b0
-sqlalchemy==2.0.31
+pandas==2.3.2
 pymysql==1.1.1
-mlflow==2.14.1
-torch==2.3.0
+mlflow==2.16.0
+pandas-ta==0.4.71b0
+torch==2.4.0
+sqlalchemy==2.0.31

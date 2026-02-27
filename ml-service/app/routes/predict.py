@@ -26,10 +26,22 @@ MODEL LOCATION:
   Stored in:  mlflow-artifacts Docker volume → /mlflow/artifacts (mlflow/Dockerfile)
   Loaded by:  app/model/load.py → load_model(run_id)
 """
-from fastapi import APIRouter
+import os
+
+import torch
+import pandas as pd
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import create_engine
+
+from app.features import FEATURE_COLS, compute_features
+from app.model.load import load_model
 
 router = APIRouter()
+
+SEQ_LEN = 60           # must match train_model.py SEQ_LEN
+CLOSE_COL_IDX = 3      # index of 'close' in FEATURE_COLS
+HOUR_MS = 3_600_000    # 1 hour in milliseconds
 
 
 class PredictRequest(BaseModel):
@@ -46,13 +58,60 @@ class PredictResponse(BaseModel):
     predictions: list[PredictionPoint]
 
 
-# POST /predict
-# Returns a dummy prediction array. Replace with real model inference later.
+def _get_engine():
+    user = os.getenv("MYSQL_USER")
+    pwd = os.getenv("MYSQL_PASSWORD")
+    db = os.getenv("MYSQL_DATABASE", "crypto_db")
+    return create_engine(f"mysql+pymysql://{user}:{pwd}@mysql:3306/{db}")
+
+
 @router.post("/predict", response_model=PredictResponse)
 def predict(req: PredictRequest):
-    dummy_predictions = [
-        {"time": 1, "value": 51000.0},
-        {"time": 2, "value": 51500.0},
-        {"time": 3, "value": 52000.0},
+    model = load_model()
+    if model is None:
+        raise HTTPException(
+            status_code=503,
+            detail="No trained model available. Run the train_model Airflow DAG first.",
+        )
+
+    # Fetch enough rows to build one full sequence after feature warmup.
+    # MACD needs 26 rows of warmup, so request SEQ_LEN + 30 to be safe.
+    engine = _get_engine()
+    df = pd.read_sql(
+        "SELECT * FROM prices WHERE coin = %(coin)s ORDER BY ts DESC LIMIT %(n)s",
+        engine,
+        params={"coin": req.coin, "n": SEQ_LEN + 30},
+    ).sort_values("ts").reset_index(drop=True)
+
+    df = compute_features(df)
+
+    if len(df) < SEQ_LEN:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Not enough price history for {req.coin} (need {SEQ_LEN} rows after feature warmup).",
+        )
+
+    # Take the last SEQ_LEN rows and apply the same per-window normalisation
+    # used during training: divide every feature by the first close value.
+    window = df.iloc[-SEQ_LEN:].values.astype("float32")   # (SEQ_LEN, 12)
+    first_close = float(window[0, CLOSE_COL_IDX])
+    denom = first_close + 1e-8
+    window_norm = window / denom
+
+    tensor = torch.tensor(window_norm).unsqueeze(0)  # (1, SEQ_LEN, 12)
+
+    model.eval()
+    with torch.no_grad():
+        pred_ratio = model(tensor).item()             # predicted close / first_close
+
+    pred_price = round(pred_ratio * first_close, 2)
+    last_ts = int(df.iloc[-1]["ts"])
+
+    # Return 3 hourly forward steps, all at the same predicted value.
+    # A multi-step decoder would vary each step; single-output LSTM repeats.
+    predictions = [
+        {"time": last_ts + (i + 1) * HOUR_MS, "value": pred_price}
+        for i in range(3)
     ]
-    return {"coin": req.coin, "predictions": dummy_predictions}
+
+    return {"coin": req.coin, "predictions": predictions}

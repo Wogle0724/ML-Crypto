@@ -30,16 +30,20 @@ import mlflow
 
 def load_model(run_id: str = None):
     """
-    Load a trained LSTMModel from the MLflow registry.
-    Returns None until a model has been trained and registered.
+    Load the Production LSTMModel from the MLflow Model Registry.
+
+    The model is registered and promoted to Production by:
+      pipeline/dags/train_model.py → log_to_mlflow task
+
+    Returns None if no Production model exists yet (train_model DAG hasn't run).
+    The predict endpoint returns HTTP 503 in that case.
     """
     tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://mlflow:5000")
     mlflow.set_tracking_uri(tracking_uri)
 
-    if run_id is None:
-        # Placeholder: no model registered yet
+    try:
+        model = mlflow.pytorch.load_model("models:/LSTMPriceModel/Production")
+        return model
+    except Exception as exc:
+        print(f"load_model: no Production model available — {exc}")
         return None
-
-    # model = mlflow.pytorch.load_model(f"runs:/{run_id}/model")
-    # return model
-    return None

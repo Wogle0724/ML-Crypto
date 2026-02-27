@@ -20,19 +20,30 @@
  *   ml-service unreachable → HTTP 502 with { error: 'ml-service unavailable', detail }
  */
 const router = require('express').Router();
-const axios = require('axios');
+const axios  = require('axios');
+const redis  = require('../services/redis');
 
 // GET /api/predict/:coin
-// Forwards the request to the ml-service and returns its prediction array.
+// 1. Check Redis cache (5-minute TTL — predictions change slowly)
+// 2. Cache miss → POST to ml-service POST /predict
+// 3. Store result in Redis before returning
 router.get('/predict/:coin', async (req, res) => {
   const { coin } = req.params;
+  const cacheKey    = `predict:${coin}`;
   const mlServiceUrl = process.env.ML_SERVICE_URL || 'http://ml-service:8000';
 
   try {
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      return res.json(JSON.parse(cached));
+    }
+
     const { data } = await axios.post(`${mlServiceUrl}/predict`, { coin });
+    await redis.setex(cacheKey, 300, JSON.stringify(data));
     res.json(data);
   } catch (err) {
-    res.status(502).json({
+    const status = err.response?.status === 503 ? 503 : 502;
+    res.status(status).json({
       error: 'ml-service unavailable',
       detail: err.message,
     });

@@ -16,12 +16,31 @@
  *   const overlaySeries = chart.addLineSeries({ color: '#f00', lineStyle: 2 });
  *   overlaySeries.setData(data.predictions);
  */
-// Placeholder — overlay predicted values on top of the chart here.
+import { useContext, useEffect, useRef } from 'react';
+import { ChartContext } from './Chart';
+
+// Renders nothing to the DOM — attaches a dashed red line series directly
+// to the lightweight-charts instance created by the parent <Chart>.
 export default function PredictionOverlay({ data }) {
-  return (
-    <div style={{ border: '1px dashed #aaf', padding: '1rem' }}>
-      <p>Prediction overlay placeholder</p>
-      {data && <pre style={{ fontSize: '0.75rem' }}>{JSON.stringify(data, null, 2)}</pre>}
-    </div>
-  );
+  const chartRef  = useContext(ChartContext);
+  const seriesRef = useRef(null);
+
+  useEffect(() => {
+    if (!chartRef?.current || !data?.predictions?.length) return;
+
+    // Create the overlay series once; reuse it on subsequent data changes.
+    if (!seriesRef.current) {
+      seriesRef.current = chartRef.current.addLineSeries({
+        color: '#ef5350',
+        lineStyle: 2,   // dashed
+        lineWidth: 2,
+      });
+    }
+
+    seriesRef.current.setData(
+      data.predictions.map((p) => ({ time: Math.floor(p.time / 1000), value: p.value }))
+    );
+  }, [data, chartRef]);
+
+  return null;
 }
