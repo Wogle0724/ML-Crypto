@@ -39,8 +39,15 @@ router.get('/:coin', async (req, res) => {
       return res.json(JSON.parse(cached));
     }
 
+    // Subquery fetches the 200 most-recent rows (DESC), outer query re-sorts ASC for the chart.
+    // DISTINCT deduplicates timestamps from overlapping DAG fetch runs.
+    // CAST(close AS DOUBLE) ensures numeric values — mysql2 returns DECIMAL as strings.
     const [rows] = await pool.query(
-      'SELECT ts AS time, close AS value FROM prices WHERE coin = ? ORDER BY ts ASC LIMIT 200',
+      `SELECT time, value FROM (
+         SELECT DISTINCT ts AS time, CAST(close AS DOUBLE) AS value
+         FROM prices WHERE coin = ?
+         ORDER BY ts DESC LIMIT 2000
+       ) t ORDER BY time ASC`,
       [coin]
     );
 

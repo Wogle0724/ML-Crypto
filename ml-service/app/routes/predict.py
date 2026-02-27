@@ -32,7 +32,7 @@ import torch
 import pandas as pd
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 
 from app.features import FEATURE_COLS, compute_features
 from app.model.load import load_model
@@ -74,14 +74,27 @@ def predict(req: PredictRequest):
             detail="No trained model available. Run the train_model Airflow DAG first.",
         )
 
-    # Fetch enough rows to build one full sequence after feature warmup.
-    # MACD needs 26 rows of warmup, so request SEQ_LEN + 30 to be safe.
+    # Use DISTINCT in the subquery so LIMIT applies to unique timestamps.
+    # Without this, each hourly fetch_prices run adds ~2160 duplicate rows and
+    # the LIMIT fills up with duplicates before reaching enough unique rows.
     engine = _get_engine()
-    df = pd.read_sql(
-        "SELECT * FROM prices WHERE coin = %(coin)s ORDER BY ts DESC LIMIT %(n)s",
-        engine,
-        params={"coin": req.coin, "n": SEQ_LEN + 30},
-    ).sort_values("ts").reset_index(drop=True)
+    with engine.connect() as conn:
+        result = conn.execute(
+            text("""
+                SELECT ts, open, high, low, close, volume FROM (
+                    SELECT DISTINCT ts, open, high, low, close, volume
+                    FROM prices WHERE coin = :coin
+                    ORDER BY ts DESC LIMIT 2000
+                ) t ORDER BY ts ASC
+            """),
+            {"coin": req.coin},
+        )
+        df = pd.DataFrame(result.fetchall(), columns=list(result.keys()))
+    df = df.reset_index(drop=True)
+    for col in ["open", "high", "low", "close", "volume"]:
+        df[col] = pd.to_numeric(df[col])
+
+    last_ts = int(df.iloc[-1]["ts"])   # save before compute_features strips ts column
 
     df = compute_features(df)
 
@@ -105,7 +118,6 @@ def predict(req: PredictRequest):
         pred_ratio = model(tensor).item()             # predicted close / first_close
 
     pred_price = round(pred_ratio * first_close, 2)
-    last_ts = int(df.iloc[-1]["ts"])
 
     # Return 3 hourly forward steps, all at the same predicted value.
     # A multi-step decoder would vary each step; single-output LSTM repeats.

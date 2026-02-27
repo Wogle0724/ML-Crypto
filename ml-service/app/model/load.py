@@ -25,7 +25,15 @@ TODO:
     mlflow.pytorch.load_model("models:/LSTMPriceModel/Production")
 """
 import os
+import sys
 import mlflow
+
+# The model was pickled in the Airflow container as "model.lstm.LSTMModel".
+# In this container WORKDIR=/app, so "model" must resolve to /app/app/model/.
+_this_dir = os.path.dirname(os.path.abspath(__file__))  # /app/app/model
+_app_dir  = os.path.dirname(_this_dir)                   # /app/app
+if _app_dir not in sys.path:
+    sys.path.insert(0, _app_dir)
 
 
 def load_model(run_id: str = None):

@@ -50,6 +50,15 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df.ta.rsi(close="close", length=14, append=True)
     df.ta.macd(close="close", append=True)      # adds MACD_12_26_9, MACDh_12_26_9, MACDs_12_26_9
-    df.ta.bbands(close="close", append=True)    # adds BBL_5_2.0, BBM_5_2.0, BBU_5_2.0, BBB_5_2.0, BBP_5_2.0
+
+    # Compute Bollinger Bands manually — pandas-ta's bbands relies on numba JIT which
+    # can fail silently on some dtype configurations, returning None without appending.
+    _close = df["close"].astype("float64")
+    _mean  = _close.rolling(5).mean()
+    _std   = _close.rolling(5).std(ddof=0)
+    df["BBM_5_2.0"] = _mean
+    df["BBL_5_2.0"] = _mean - 2.0 * _std
+    df["BBU_5_2.0"] = _mean + 2.0 * _std
+
     df = df.dropna()
     return df[FEATURE_COLS]

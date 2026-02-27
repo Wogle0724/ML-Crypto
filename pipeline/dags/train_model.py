@@ -34,7 +34,7 @@ def load_training_data(**context):
     """Query MySQL for price history, compute features, build sliding-window sequences."""
     import numpy as np
     import pandas as pd
-    from sqlalchemy import create_engine
+    from sqlalchemy import create_engine, text
 
     from features import FEATURE_COLS, compute_features
 
@@ -43,10 +43,11 @@ def load_training_data(**context):
     db = os.getenv("MYSQL_DATABASE", "crypto_db")
     engine = create_engine(f"mysql+pymysql://{user}:{pwd}@mysql:3306/{db}")
 
-    df = pd.read_sql(
-        "SELECT * FROM prices WHERE coin = 'bitcoin' ORDER BY ts ASC",
-        engine,
-    )
+    with engine.connect() as conn:
+        result = conn.execute(text("SELECT * FROM prices WHERE coin = 'bitcoin' ORDER BY ts ASC"))
+        df = pd.DataFrame(result.fetchall(), columns=list(result.keys()))
+    for col in ["open", "high", "low", "close", "volume"]:
+        df[col] = pd.to_numeric(df[col])
     print(f"Loaded {len(df)} raw rows from MySQL")
 
     df = compute_features(df)
@@ -142,7 +143,7 @@ def log_to_mlflow(**context):
     mlflow.set_experiment("crypto-lstm")
 
     model = LSTMModel(input_size=12, hidden_size=64, num_layers=2, output_size=1)
-    model.load_state_dict(torch.load(CHECKPOINT_PATH))
+    model.load_state_dict(torch.load(CHECKPOINT_PATH, weights_only=True))
     model.eval()
 
     with mlflow.start_run() as run:
