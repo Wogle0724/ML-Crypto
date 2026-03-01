@@ -25,16 +25,19 @@ export default function PredictionOverlay({ data, lastPrice }) {
       });
     }
 
-    // Prepend the last historical price so the prediction line connects
-    // to the end of the price chart rather than starting as a floating segment.
-    const anchor = lastPrice
-      ? [{ time: Math.floor(lastPrice.time / 1000), value: lastPrice.value }]
+    const predPoints = data.predictions.map((p) => ({
+      time: Math.floor(p.time / 1000),
+      value: p.value,
+    }));
+
+    // Prepend the last historical price so the prediction line connects to the price chart.
+    // Skip the anchor if prices have advanced past the first prediction (would break time ordering).
+    const anchorSec = lastPrice ? Math.floor(lastPrice.time / 1000) : null;
+    const anchor = (anchorSec && predPoints.length && anchorSec < predPoints[0].time)
+      ? [{ time: anchorSec, value: lastPrice.value }]
       : [];
 
-    seriesRef.current.setData([
-      ...anchor,
-      ...data.predictions.map((p) => ({ time: Math.floor(p.time / 1000), value: p.value })),
-    ]);
+    seriesRef.current.setData([...anchor, ...predPoints]);
   }, [data, lastPrice, chartRef]);
 
   return null;

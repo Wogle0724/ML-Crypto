@@ -96,6 +96,7 @@ def predict(req: PredictRequest):
         df[col] = pd.to_numeric(df[col])
 
     last_ts = int(df.iloc[-1]["ts"])   # save before compute_features strips ts column
+    last_ts = (last_ts // HOUR_MS) * HOUR_MS   # snap to hour boundary so predicted_for_ts matches CoinGecko exactly
 
     df = compute_features(df)
 

@@ -1,5 +1,5 @@
 /**
- * frontend/src/components/ActualsOverlay.jsx
+ * frontend/src/components/PastOverlay.jsx
  *
  * Plots the actual prices that materialised for previously-predicted timestamps.
  * Data comes from prediction_log.actual_price (back-filled by fetch_prices DAG).
@@ -15,7 +15,7 @@
 import { useContext, useEffect, useRef } from 'react';
 import { ChartContext } from './Chart';
 
-export default function ActualsOverlay({ data }) {
+export default function PastOverlay({ data }) {
   const chartRef  = useContext(ChartContext);
   const seriesRef = useRef(null);
 
@@ -25,7 +25,7 @@ export default function ActualsOverlay({ data }) {
 
     if (!seriesRef.current) {
       seriesRef.current = chartRef.current.addLineSeries({
-        color: '#26a69a',       // teal — distinct from blue (history) and red (predictions)
+        color: '#43a047',       // green — past predictions; compare against blue (actual prices)
         lineWidth: 2,
         lastValueVisible: false,
         priceLineVisible: false,

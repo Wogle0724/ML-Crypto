@@ -105,18 +105,23 @@ def fetch_and_store(**context):
 
         # Back-fill actual prices into prediction_log for any predictions whose
         # target timestamp just arrived. Uses the df already in memory — no extra query.
+        # Uses a ±5-minute window instead of exact equality because CoinGecko timestamps
+        # can be a few seconds off exact hour boundaries, causing predicted_for_ts
+        # (which is last_ts + N*HOUR_MS) to not match exactly.
         filled = 0
         with engine.begin() as conn:
             for _, row in df.iterrows():
+                ts_ms = int(row["ts"])
                 result = conn.execute(
                     text("""
                         UPDATE prediction_log
                         SET actual_price = :actual
                         WHERE coin = :coin
-                          AND predicted_for_ts = :ts
+                          AND predicted_for_ts BETWEEN :ts_low AND :ts_high
                           AND actual_price IS NULL
                     """),
-                    {"actual": float(row["close"]), "coin": coin, "ts": int(row["ts"])},
+                    {"actual": float(row["close"]), "coin": coin,
+                     "ts_low": ts_ms - 300_000, "ts_high": ts_ms + 300_000},
                 )
                 filled += result.rowcount
         if filled:

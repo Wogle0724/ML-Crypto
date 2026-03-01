@@ -29,7 +29,7 @@ router.get('/:coin', async (req, res) => {
          CAST(actual_price    AS DOUBLE)   AS actual_price
        FROM prediction_log
        WHERE coin = ?
-       ORDER BY predicted_at_ts DESC, horizon_step ASC
+       ORDER BY predicted_for_ts DESC
        LIMIT 500`,
       [coin]
     );

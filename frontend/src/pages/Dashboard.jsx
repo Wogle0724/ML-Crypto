@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react';
 import api from '../api/index.js';
 import Chart from '../components/Chart.jsx';
 import PredictionOverlay from '../components/PredictionOverlay.jsx';
-import ActualsOverlay from '../components/ActualsOverlay.jsx';
+import PastOverlay from '../components/PastOverlay.jsx';
 import PredictionTable from '../components/PredictionTable.jsx';
 
 const COINS = ['bitcoin', 'ethereum'];
@@ -106,7 +106,7 @@ export default function Dashboard() {
 
       <Chart data={prices} range={range} predictionEndMs={predictionEndMs}>
         <PredictionOverlay data={predictions} lastPrice={lastPrice} />
-        <ActualsOverlay data={pastPredictions} />
+        <PastOverlay data={pastPredictions} />
       </Chart>
 
       <PredictionTable data={predictionLog} />

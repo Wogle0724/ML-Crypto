@@ -11,7 +11,7 @@
  *   Step (hr)      — how many hours ahead (1–24)
  *   Predicted ($)  — the model's predicted close price
  *   Actual ($)     — the real close price once it arrived (Pending if not yet)
- *   MSE            — squared error (predicted − actual)², colored by magnitude
+ *   Loss           — error (predicted − actual), colored by magnitude
  */
 export default function PredictionTable({ data }) {
   if (!data) return null;
@@ -39,14 +39,14 @@ export default function PredictionTable({ data }) {
               <th style={{ ...styles.th, textAlign: 'center' }}>Step (hr)</th>
               <th style={{ ...styles.th, textAlign: 'right' }}>Predicted ($)</th>
               <th style={{ ...styles.th, textAlign: 'right' }}>Actual ($)</th>
-              <th style={{ ...styles.th, textAlign: 'right' }}>MSE</th>
+              <th style={{ ...styles.th, textAlign: 'right' }}>Loss</th>
             </tr>
           </thead>
           <tbody>
             {data.log.map((row, i) => {
               const hasActual = row.actual_price != null;
-              const mse = hasActual
-                ? Math.pow(row.predicted_price - row.actual_price, 2)
+              const loss = hasActual
+                ? Math.abs(row.predicted_price - row.actual_price)
                 : null;
 
               return (
@@ -74,8 +74,8 @@ export default function PredictionTable({ data }) {
                   <td style={{ ...styles.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                     {hasActual ? fmt(row.actual_price) : <span style={{ color: '#bbb' }}>Pending</span>}
                   </td>
-                  <td style={{ ...styles.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', ...mseColor(mse) }}>
-                    {mse != null ? fmtMse(mse) : <span style={{ color: '#bbb' }}>—</span>}
+                  <td style={{ ...styles.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', ...lossColor(loss) }}>
+                    {loss != null ? fmt(loss) : <span style={{ color: '#bbb' }}>—</span>}
                   </td>
                 </tr>
               );
@@ -91,18 +91,11 @@ function fmt(n) {
   return Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function fmtMse(n) {
-  // Use compact notation for large squared-dollar values
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000)     return `${(n / 1_000).toFixed(2)}K`;
-  return n.toFixed(2);
-}
-
-function mseColor(mse) {
-  if (mse == null)       return {};
-  if (mse < 10_000)      return { color: '#2e7d32' }; // green  — within ~$100
-  if (mse < 1_000_000)   return { color: '#e65100' }; // orange — within ~$1000
-  return { color: '#c62828' };                         // red    — >$1000 off
+function lossColor(loss) {
+  if (loss == null)   return {};
+  if (loss < 100)     return { color: '#2e7d32' }; // green  — within $100
+  if (loss < 1_000)   return { color: '#e65100' }; // orange — within $1000
+  return { color: '#c62828' };                      // red    — >$1000 off
 }
 
 const styles = {
