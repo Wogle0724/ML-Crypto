@@ -39,7 +39,7 @@ class LSTMModel(nn.Module):
         input_size: int = 12,
         hidden_size: int = 64,
         num_layers: int = 2,
-        output_size: int = 1,
+        output_size: int = 24,
     ):
         super().__init__()
         self.lstm = nn.LSTM(

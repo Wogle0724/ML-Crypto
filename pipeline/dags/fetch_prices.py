@@ -103,6 +103,25 @@ def fetch_and_store(**context):
         print(f"  {coin}: {inserted} new rows inserted ({len(df) - inserted} duplicates skipped)")
         summary[coin] = {"fetched": len(df), "inserted": inserted}
 
+        # Back-fill actual prices into prediction_log for any predictions whose
+        # target timestamp just arrived. Uses the df already in memory — no extra query.
+        filled = 0
+        with engine.begin() as conn:
+            for _, row in df.iterrows():
+                result = conn.execute(
+                    text("""
+                        UPDATE prediction_log
+                        SET actual_price = :actual
+                        WHERE coin = :coin
+                          AND predicted_for_ts = :ts
+                          AND actual_price IS NULL
+                    """),
+                    {"actual": float(row["close"]), "coin": coin, "ts": int(row["ts"])},
+                )
+                filled += result.rowcount
+        if filled:
+            print(f"  {coin}: {filled} prediction_log rows filled with actuals")
+
     # Push only the tiny summary dict — safe for XCom
     context["ti"].xcom_push(key="summary", value=summary)
 

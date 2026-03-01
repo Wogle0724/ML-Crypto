@@ -78,7 +78,7 @@ services:
     networks:
       - crypto-net
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "airflow"]
+      test: ["CMD", "pg_isready", "-U", "airflow", "-d", "airflow_db"]
       interval: 10s
       timeout: 5s
       retries: 5

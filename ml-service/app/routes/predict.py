@@ -40,6 +40,7 @@ from app.model.load import load_model
 router = APIRouter()
 
 SEQ_LEN = 60           # must match train_model.py SEQ_LEN
+HORIZON = 24           # must match train_model.py HORIZON
 CLOSE_COL_IDX = 3      # index of 'close' in FEATURE_COLS
 HOUR_MS = 3_600_000    # 1 hour in milliseconds
 
@@ -115,15 +116,29 @@ def predict(req: PredictRequest):
 
     model.eval()
     with torch.no_grad():
-        pred_ratio = model(tensor).item()             # predicted close / first_close
+        pred_ratios = model(tensor).squeeze(0)   # (HORIZON,) — one ratio per future step
 
-    pred_price = round(pred_ratio * first_close, 2)
-
-    # Return 3 hourly forward steps, all at the same predicted value.
-    # A multi-step decoder would vary each step; single-output LSTM repeats.
+    # De-normalise: each ratio is predicted_close / first_close of the input window.
     predictions = [
-        {"time": last_ts + (i + 1) * HOUR_MS, "value": pred_price}
-        for i in range(3)
+        {"time": last_ts + (i + 1) * HOUR_MS, "value": round(float(pred_ratios[i]) * first_close, 2)}
+        for i in range(HORIZON)
     ]
+
+    # Log predictions to prediction_log so actuals can be back-filled later
+    # by fetch_prices DAG and real-world MSE can be tracked in MLflow.
+    try:
+        with engine.begin() as conn:
+            for step, p in enumerate(predictions, start=1):
+                conn.execute(
+                    text("""
+                        INSERT IGNORE INTO prediction_log
+                          (coin, predicted_for_ts, predicted_at_ts, horizon_step, predicted_price)
+                        VALUES (:coin, :pft, :pat, :step, :price)
+                    """),
+                    {"coin": req.coin, "pft": p["time"], "pat": last_ts,
+                     "step": step, "price": p["value"]},
+                )
+    except Exception as exc:
+        print(f"predict: failed to log to prediction_log — {exc}")
 
     return {"coin": req.coin, "predictions": predictions}

@@ -31,6 +31,7 @@ const app = express();
 app.use(express.json());
 
 app.use('/api/prices', require('./src/routes/prices'));
+app.use('/api/prediction-log', require('./src/routes/predictionLog'));
 app.use('/api', require('./src/routes/predictions'));
 
 const PORT = process.env.PORT || 4000;
